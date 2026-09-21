@@ -5,7 +5,6 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-
 import org.springframework.data.redis.core.RedisTemplate;
 
 import java.util.List;
@@ -13,10 +12,10 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * 学生业务层
- * 处理学生相关的业务逻辑
+ * 实现 PersonService 接口
  */
 @Service
-public class StudentService {
+public class StudentService implements PersonService<Student> {
 
     @Autowired
     private StudentMapper studentMapper;
@@ -25,6 +24,52 @@ public class StudentService {
     private RedisTemplate<String, Object> redisTemplate;
 
     private static final String CACHE_KEY_ALL = "student:all";
+
+    // ==================== 实现接口方法 ====================
+
+    @Override
+    public List<Student> getAll() {
+        // 先查缓存
+        List<Student> cached = (List<Student>) redisTemplate.opsForValue().get(CACHE_KEY_ALL);
+        if (cached != null) {
+            System.out.println("从缓存中获取数据");
+            return cached;
+        }
+        // 缓存没有，查数据库
+        List<Student> students = studentMapper.selectList(null);
+        System.out.println("从数据库中获取数据");
+        // 写入缓存
+        redisTemplate.opsForValue().set(CACHE_KEY_ALL, students, 60, TimeUnit.SECONDS);
+        return students;
+    }
+
+    @Override
+    public Student getById(String id) {
+        return studentMapper.selectById(id);
+    }
+
+    @Override
+    public String add(Student student) {
+        studentMapper.insert(student);
+        redisTemplate.delete(CACHE_KEY_ALL);
+        return "添加成功";
+    }
+
+    @Override
+    public String update(Student student) {
+        studentMapper.updateById(student);
+        redisTemplate.delete(CACHE_KEY_ALL);
+        return "修改成功";
+    }
+
+    @Override
+    public String delete(String id) {
+        studentMapper.deleteById(id);
+        redisTemplate.delete(CACHE_KEY_ALL);
+        return "删除成功";
+    }
+
+    // ==================== 原有方法 ====================
 
     /**
      * 条件搜索 + 分页
@@ -54,65 +99,43 @@ public class StudentService {
         return studentMapper.selectPage(page, null);
     }
 
-    /**
-     * 查询所有学生
-     */
-    public List<Student> getAllStudents() {
-
-        // return studentMapper.selectList(null);
-        // 1. 先查缓存
-        List<Student> cached = (List<Student>) redisTemplate.opsForValue().get(CACHE_KEY_ALL);
-        if (cached != null) {
-            System.out.println("从缓存中获取数据");
-            return cached;
-        }
-
-        // 2. 缓存没有，查数据库
-        List<Student> students = studentMapper.selectList(null);
-        System.out.println("从数据库中获取数据");
-
-        // 3. 写入缓存，设置 60 秒过期
-        redisTemplate.opsForValue().set(CACHE_KEY_ALL, students, 60, TimeUnit.SECONDS);
-
-        System.out.println(students.get(0));
-
-        return students;
-    }
-
-    /**
-     * 根据学号查询学生
-     */
-    public Student getStudentById(String id) {
+    // 根据学号查询
+    public Student getById(int id) {
         return studentMapper.selectById(id);
     }
 
-    /**
-     * 添加学生
-     */
-    public String addStudent(Student student) {
-        // return studentMapper.insert(student) > 0 ? "添加成功！" : "添加失败！";
-        studentMapper.insert(student);
-        redisTemplate.delete(CACHE_KEY_ALL);
-        return "添加成功";
+    // 重载：根据姓名和班级查询
+    public Student getById(String name, String className) {
+        QueryWrapper<Student> wrapper = new QueryWrapper<>();
+        wrapper.eq("name", name);
+        wrapper.eq("class_name", className);
+        return studentMapper.selectOne(wrapper);
     }
 
-    /**
-     * 删除学生
-     */
-    public String deleteStudent(String id) {
-        // return studentMapper.deleteById(id) > 0 ? "删除成功！" : "删除失败，学号不存在！";
-        studentMapper.deleteById(id);
-        redisTemplate.delete(CACHE_KEY_ALL);
-        return "删除成功";
+    // 重载：根据学号查询，并指定是否走缓存
+    public Student getById(String id, boolean useCache) {
+        if (useCache) {
+            System.out.println("走缓存查询");
+        }
+        return studentMapper.selectById(id);
     }
 
-    /**
-     * 修改学生信息
-     */
-    public String updateStudent(Student student) {
-        // return studentMapper.updateById(student) > 0 ? "修改成功！" : "修改失败，学号不存在！";
-        studentMapper.updateById(student);
-        redisTemplate.delete(CACHE_KEY_ALL);
-        return "修改成功";
+    // 值传递vs引用传递
+    // 验证值传递：基本类型
+    public void changeInt(int num) {
+        num = 100;
+        System.out.println("方法内 num = " + num);
+    }
+
+    // 验证引用传递：对象
+    public void changeStudent(Student student) {
+        student.setName("被修改了");  // 会改变原对象
+    }
+
+    // 验证引用传递：重新赋值
+    public void changeStudent2(Student student) {
+        student = new Student();      // 不会改变原对象
+        student.setName("新对象");
+        System.out.println("方法内 student.name = " + student.getName());
     }
 }
